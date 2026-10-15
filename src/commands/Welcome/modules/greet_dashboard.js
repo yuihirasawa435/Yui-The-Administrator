@@ -126,27 +126,33 @@ function buildButtonRow(cfg, guildId, disabled = false) {
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`greet_cfg_toggle_welcome_${guildId}`)
-                .setLabel('Welcome')
-                .setStyle(welcomeOn ? ButtonStyle.Success : ButtonStyle.Danger)
-                .setEmoji('🟢')
+                .setLabel(welcomeOn ? 'Disable Welcome' : 'Enable Welcome')
+                .setStyle(welcomeOn ? ButtonStyle.Danger : ButtonStyle.Success)
+                .setEmoji(welcomeOn ? '🔴' : '🟢')
                 .setDisabled(disabled),
             new ButtonBuilder()
                 .setCustomId(`greet_cfg_toggle_goodbye_${guildId}`)
-                .setLabel('Goodbye')
-                .setStyle(goodbyeOn ? ButtonStyle.Success : ButtonStyle.Danger)
-                .setEmoji('🔴')
+                .setLabel(goodbyeOn ? 'Disable Goodbye' : 'Enable Goodbye')
+                .setStyle(goodbyeOn ? ButtonStyle.Danger : ButtonStyle.Success)
+                .setEmoji(goodbyeOn ? '🔴' : '🟢')
                 .setDisabled(disabled),
+            new ButtonBuilder()
+                .setCustomId(`greet_cfg_disable_all_${guildId}`)
+                .setLabel('Disable All')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji('🛑')
+                .setDisabled(disabled || (!welcomeOn && !goodbyeOn)),
         ),
         new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`greet_cfg_ping_welcome_${guildId}`)
-                .setLabel('Ping Welcome')
+                .setLabel(welcomePingOn ? 'Ping Welcome (ON)' : 'Ping Welcome (OFF)')
                 .setStyle(welcomePingOn ? ButtonStyle.Primary : ButtonStyle.Secondary)
                 .setEmoji('🔔')
                 .setDisabled(disabled),
             new ButtonBuilder()
                 .setCustomId(`greet_cfg_ping_goodbye_${guildId}`)
-                .setLabel('Ping Goodbye')
+                .setLabel(goodbyePingOn ? 'Ping Goodbye (ON)' : 'Ping Goodbye (OFF)')
                 .setStyle(goodbyePingOn ? ButtonStyle.Primary : ButtonStyle.Secondary)
                 .setEmoji('🔔')
                 .setDisabled(disabled),
@@ -256,10 +262,7 @@ export default {
                 componentType: ComponentType.Button,
                 filter: i =>
                     i.user.id === interaction.user.id &&
-                    (i.customId === `greet_cfg_toggle_welcome_${guildId}` ||
-                        i.customId === `greet_cfg_toggle_goodbye_${guildId}` ||
-                        i.customId === `greet_cfg_ping_welcome_${guildId}` ||
-                        i.customId === `greet_cfg_ping_goodbye_${guildId}`),
+                    i.customId.startsWith('greet_cfg_'),
                 time: 600_000,
             });
 
@@ -277,7 +280,7 @@ export default {
                         await sendEphemeralFollowUp(btnInteraction, {
                             embeds: [
                                 successEmbed(
-                                    '✅ Welcome Updated',
+                                    cfg.enabled ? '✅ Welcome Enabled' : '🛑 Welcome Disabled',
                                     `Welcome messages are now **${cfg.enabled ? 'enabled' : 'disabled'}**.`,
                                 ),
                             ],
@@ -288,8 +291,20 @@ export default {
                         await sendEphemeralFollowUp(btnInteraction, {
                             embeds: [
                                 successEmbed(
-                                    '✅ Goodbye Updated',
+                                    cfg.goodbyeEnabled ? '✅ Goodbye Enabled' : '🛑 Goodbye Disabled',
                                     `Goodbye messages are now **${cfg.goodbyeEnabled ? 'enabled' : 'disabled'}**.`,
+                                ),
+                            ],
+                        });
+                    } else if (customId === `greet_cfg_disable_all_${guildId}`) {
+                        cfg.enabled = false;
+                        cfg.goodbyeEnabled = false;
+                        await saveWelcomeConfig(client, guildId, cfg);
+                        await sendEphemeralFollowUp(btnInteraction, {
+                            embeds: [
+                                successEmbed(
+                                    '🛑 Greet System Disabled',
+                                    'Both Welcome and Goodbye messages have been **disabled**.',
                                 ),
                             ],
                         });
@@ -369,7 +384,7 @@ async function handleWelcomeChannel(selectInteraction, rootInteraction, cfg, gui
             new EmbedBuilder()
                 .setTitle('🟢 Welcome Channel')
                 .setDescription(
-                    `**Current:** ${cfg.channelId ?`<#${cfg.channelId}>`: '`Not set`'}\n\nSelect the channel where welcome messages will be sent.`,
+                    `**Current:** ${cfg.channelId ? `<#${cfg.channelId}>` : '`Not set`'}\n\nSelect the channel where welcome messages will be sent.`,
                 )
                 .setColor(getColor('info')),
         ],
@@ -536,26 +551,6 @@ async function handleWelcomeImage(selectInteraction, rootInteraction, cfg, guild
     await refreshDashboard(rootInteraction, cfg, guildId);
 }
 
-async function handleWelcomePing(selectInteraction, rootInteraction, cfg, guildId, client) {
-    if (!await deferComponent(selectInteraction)) {
-        return;
-    }
-
-    cfg.welcomePing = !cfg.welcomePing;
-    await saveWelcomeConfig(client, guildId, cfg);
-
-    await sendEphemeralFollowUp(selectInteraction, {
-        embeds: [
-            successEmbed(
-                '✅ Welcome Ping Updated',
-                `Joining users will${cfg.welcomePing ? '' : ' **not**'} be pinged in the welcome message.`,
-            ),
-        ],
-    });
-
-    await refreshDashboard(rootInteraction, cfg, guildId);
-}
-
 async function handleGoodbyeChannel(selectInteraction, rootInteraction, cfg, guildId, client) {
     if (!await deferComponent(selectInteraction)) {
         return;
@@ -572,7 +567,7 @@ async function handleGoodbyeChannel(selectInteraction, rootInteraction, cfg, gui
             new EmbedBuilder()
                 .setTitle('🔴 Goodbye Channel')
                 .setDescription(
-                    `**Current:** ${cfg.goodbyeChannelId ?`<#${cfg.goodbyeChannelId}>`: '`Not set`'}\n\nSelect the channel where goodbye messages will be sent.`,
+                    `**Current:** ${cfg.goodbyeChannelId ? `<#${cfg.goodbyeChannelId}>` : '`Not set`'}\n\nSelect the channel where goodbye messages will be sent.`,
                 )
                 .setColor(getColor('info')),
         ],
@@ -745,26 +740,6 @@ async function handleGoodbyeImage(selectInteraction, rootInteraction, cfg, guild
     await submitted.reply({
         embeds: [successEmbed('Goodbye Image Updated', `Image ${imageUrl ? 'updated' : 'removed'} successfully.`)],
         flags: MessageFlags.Ephemeral,
-    });
-
-    await refreshDashboard(rootInteraction, cfg, guildId);
-}
-
-async function handleGoodbyePing(selectInteraction, rootInteraction, cfg, guildId, client) {
-    if (!await deferComponent(selectInteraction)) {
-        return;
-    }
-
-    cfg.goodbyePing = !cfg.goodbyePing;
-    await saveWelcomeConfig(client, guildId, cfg);
-
-    await sendEphemeralFollowUp(selectInteraction, {
-        embeds: [
-            successEmbed(
-                '✅ Goodbye Ping Updated',
-                `Leaving users will${cfg.goodbyePing ? '' : ' **not**'} be pinged in the goodbye message.`,
-            ),
-        ],
     });
 
     await refreshDashboard(rootInteraction, cfg, guildId);
